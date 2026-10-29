@@ -1,4 +1,23 @@
-# Proyecto · Un MCP con las series oficiales del BCRP
+# Un MCP con las series oficiales del BCRP
+
+Sesión 04 · Data Science con Python · Nicolás Silva Andújar (@nicosil02)
+
+**Resultado:** con este servidor MCP, Claude Haiku acierta **10 de 10** cifras oficiales del BCRP; sin herramientas no
+sabe ninguna y con búsqueda web acierta 9. Análisis completo en [`informe.md`](informe.md).
+
+![Resultados por modo](grafico.png)
+
+| Archivo | Qué es |
+|---|---|
+| `server.py` | El servidor: `buscar_series`, `serie`, `resumen`, `comparar_paises` (Banco Mundial), el recurso `bcrp://serie/{codigo}` y el prompt `informe` |
+| `.mcp.json` | Conecta `bcrp` y `fetch` a Claude Code |
+| `preguntas.csv` | Las 10 preguntas; `oro_set26` y `desempleo_set26` son mías |
+| `resultados*.csv` | Lo que dio `evaluar.py` en cada modo |
+| `informe.md`, `grafico.png`, `grafico.py` | El análisis y la figura |
+
+---
+
+## Enunciado del proyecto
 
 En 1 h 40 min construyen un servidor MCP con FastMCP que busca entre las 17,167 series del Banco Central de Reserva
 del Perú, las descarga y calcula variaciones. Después lo conectan a Claude Code y miden, con `claude -p`, cuántas cifras

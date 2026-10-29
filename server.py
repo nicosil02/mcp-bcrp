@@ -7,6 +7,7 @@
 Las cuentas las hace Python, no el modelo: así cada cifra sale de una llamada que se puede repetir.
 """
 import re
+import time
 import unicodedata
 from functools import cache
 from pathlib import Path
@@ -78,29 +79,131 @@ def buscar_series(texto: str, frecuencia: str | None = None, limite: int = 10) -
     return [_ficha(c) for c in orden.sort_values(["vieja", "largo"]).head(limite).codigo]
 
 
-# TODO 1 · serie(codigo, desde, hasta) -> {"codigo", "nombre", "frecuencia", "datos": [{"periodo", "valor"}], "fuente"}
-#   La API se llama así: f"{API}/{codigo}/json/{desde}/{hasta}" y responde
-#   {"config": {...}, "periods": [{"name": "Ene.2025", "values": ["0.81"]}, ...]}
-#   - Fechas que pide la API: 2025-1 (mensual y trimestral), 2025-01-15 (diaria), 2025 (anual).
-#   - Nombres que devuelve: "Ene.2025" (mensual), "01.Oct.26" (diaria), "T1.25" (trimestral), "2025" (anual).
-#     Setiembre viene como "Set". Devuelvan el periodo como "2025-01", "2026-10-01", "2025-T1" o "2025".
-#   - Salten los valores "n.d." y usen la frecuencia de _ficha(codigo) para saber qué formato pedir.
-#   - Si recibe muchos pedidos seguidos, la API responde una página HTML en vez de JSON: esperen unos segundos y
-#     reintenten (y guarden en caché lo que ya bajaron).
-#   - Un código que no existe debe dar un ToolError que diga el código.
+MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Dic"]
+NUM_MES = {m: i + 1 for i, m in enumerate(MESES)} | {"Sep": 9}
 
-# TODO 2 · resumen(codigo, desde, hasta): primero, ultimo, cambio, variacion_pct, promedio, maximo y minimo
-#   (los tres últimos con su periodo). Úsenla para que el modelo nunca haga cuentas a mano.
 
-# TODO 3 · Una herramienta suya, bien descrita. Ideas:
-#   - comparar_paises con la API del Banco Mundial, que tampoco pide clave:
-#     https://api.worldbank.org/v2/country/PER;CHL;COL/indicator/NY.GDP.MKTP.KD.ZG?format=json&date=2015:2025
-#   - correlacion(codigo_a, codigo_b, desde, hasta)
-#   - grafico(codigo, desde, hasta) que guarde un PNG en salidas/ y devuelva la ruta
+def _fecha_api(fecha, frecuencia, fin=False):
+    """Convierte "2025-01", "2025-01-15", "2025-T1" o "2025" al formato que pide la API según la frecuencia."""
+    m = re.fullmatch(r"(\d{4})(?:-(T?)(\d{1,2}))?(?:-(\d{1,2}))?", fecha.strip())
+    if not m:
+        raise ToolError(f"Fecha {fecha!r} no reconocida. Usen 2025-01 (mes), 2025-01-15 (día), 2025-T1 o 2025.")
+    anio, es_trim, mes, dia = int(m[1]), m[2], m[3], m[4]
+    if frecuencia == "Anual":
+        return str(anio)
+    if frecuencia == "Trimestral":
+        if mes is None:
+            return f"{anio}-{4 if fin else 1}"
+        return f"{anio}-{int(mes) if es_trim else (int(mes) - 1) // 3 + 1}"
+    mes = int(mes) if mes else (12 if fin else 1)
+    if frecuencia == "Diaria":
+        if dia is None:   # un mes entero: del primer al último día
+            dia = pd.Period(f"{anio}-{mes:02d}").days_in_month if fin else 1
+        return f"{anio}-{mes:02d}-{int(dia):02d}"
+    return f"{anio}-{mes}"
 
-# TODO 4 · Un recurso, por ejemplo la plantilla bcrp://serie/{codigo} con la ficha de la serie.
 
-# TODO 5 · Un prompt, por ejemplo informe(tema) que pida citar el código y el periodo de cada cifra.
+def _periodo(nombre):
+    """"Ene.2025" -> "2025-01", "01.Oct.26" -> "2026-10-01", "T1.25" -> "2025-T1", "2025" -> "2025"."""
+    partes = nombre.split(".")
+    if len(partes) == 3:
+        return f"20{partes[2]}-{NUM_MES[partes[1]]:02d}-{int(partes[0]):02d}"
+    if len(partes) == 2 and partes[0].startswith("T"):
+        return f"20{partes[1]}-{partes[0]}"
+    if len(partes) == 2:
+        return f"{partes[1]}-{NUM_MES[partes[0]]:02d}"
+    return nombre
+
+
+@cache
+def _descargar(url):
+    """Pide la URL a la API; si responde HTML (límite de pedidos), espera y reintenta. Guarda en caché."""
+    for intento in range(5):
+        try:
+            r = httpx.get(url, timeout=60)
+            return r.json()
+        except (ValueError, httpx.HTTPError):
+            time.sleep(2 + 3 * intento)
+    raise ToolError(f"El BCRP no respondió con datos para {url}. Intenten de nuevo en unos segundos.")
+
+
+@mcp.tool(annotations=SOLO_LECTURA)
+def serie(codigo: str, desde: str, hasta: str) -> dict:
+    """Datos de una serie del BCRP entre dos fechas, ambas incluidas, con la URL de la fuente.
+
+    Fechas: "2025-01" (mensual), "2026-10-15" (diaria), "2025-T1" (trimestral) o "2025" (anual); si la serie es
+    diaria y dan un mes, se toma el mes completo. Ejemplo: serie("PN01273PM", "2026-01", "2026-09").
+    Busquen antes el código con buscar_series. Para variaciones, promedios o extremos usen resumen.
+    """
+    f = _ficha(codigo)
+    url = f"{API}/{codigo}/json/{_fecha_api(desde, f['frecuencia'])}/{_fecha_api(hasta, f['frecuencia'], fin=True)}"
+    datos = [{"periodo": _periodo(p["name"]), "valor": float(p["values"][0])}
+             for p in _descargar(url).get("periods", []) if p["values"][0] not in ("n.d.", "")]
+    if not datos:
+        raise ToolError(f"La serie {codigo} no tiene datos entre {desde} y {hasta}. Revisen el inicio en su ficha.")
+    return {**f, "datos": datos, "fuente": url}
+
+
+@mcp.tool(annotations=SOLO_LECTURA)
+def resumen(codigo: str, desde: str, hasta: str) -> dict:
+    """Resumen de una serie del BCRP entre dos fechas: primer y último dato, cambio absoluto, variación %,
+    promedio, máximo y mínimo (con su periodo). Úsenla en vez de calcular a mano.
+
+    Mismas fechas que serie. Ejemplo: resumen("PN01273PM", "2025-12", "2026-09") para ver cómo fue la inflación.
+    """
+    s = serie(codigo, desde, hasta)
+    df = pd.DataFrame(s["datos"])
+    punto = lambda i: {"periodo": df.periodo[i], "valor": round(df.valor[i], 4)}
+    primero, ultimo = df.valor.iloc[0], df.valor.iloc[-1]
+    return {"codigo": codigo, "nombre": s["nombre"], "frecuencia": s["frecuencia"], "n": len(df),
+            "primero": punto(0), "ultimo": punto(len(df) - 1), "cambio": round(ultimo - primero, 4),
+            "variacion_pct": round((ultimo / primero - 1) * 100, 2) if primero else None,
+            "promedio": round(df.valor.mean(), 4), "maximo": punto(df.valor.idxmax()),
+            "minimo": punto(df.valor.idxmin()), "fuente": s["fuente"]}
+
+
+INDICADORES_BM = {"crecimiento_pbi": "NY.GDP.MKTP.KD.ZG", "inflacion": "FP.CPI.TOTL.ZG",
+                  "desempleo": "SL.UEM.TOTL.ZS", "pbi_per_capita": "NY.GDP.PCAP.KD",
+                  "exportaciones_pct_pbi": "NE.EXP.GNFS.ZS", "deuda_publica_pct_pbi": "GC.DOD.TOTL.GD.ZS"}
+
+
+@mcp.tool(annotations=SOLO_LECTURA)
+def comparar_paises(indicador: str, paises: str = "PER;CHL;COL;MEX;BRA", desde: int = 2015,
+                    hasta: int = 2025) -> dict:
+    """Compara al Perú con otros países en un indicador anual del Banco Mundial (el BCRP solo tiene datos del Perú).
+
+    Úsenla cuando pregunten cómo le va al Perú frente a la región o a otro país. indicador: "crecimiento_pbi" (%),
+    "inflacion" (%), "desempleo" (% de la fuerza laboral), "pbi_per_capita" (US$ constantes de 2015),
+    "exportaciones_pct_pbi" o "deuda_publica_pct_pbi". paises: códigos ISO3 separados por ";", por ejemplo "PER;CHL".
+    Devuelve los valores por país y año, el promedio de cada país en el periodo y la URL de la fuente.
+    """
+    if indicador not in INDICADORES_BM:
+        raise ToolError(f"Indicador {indicador!r} no disponible. Usen uno de: {', '.join(INDICADORES_BM)}.")
+    url = (f"https://api.worldbank.org/v2/country/{paises}/indicator/{INDICADORES_BM[indicador]}"
+           f"?format=json&date={desde}:{hasta}&per_page=1000")
+    r = _descargar(url)
+    if len(r) < 2 or not r[1]:
+        raise ToolError(f"El Banco Mundial no devolvió datos para {paises!r}. Revisen los códigos ISO3.")
+    df = pd.DataFrame([{"pais": x["country"]["value"], "iso3": x["countryiso3code"], "anio": int(x["date"]),
+                        "valor": x["value"]} for x in r[1]]).dropna()
+    return {"indicador": indicador, "codigo_bm": INDICADORES_BM[indicador],
+            "datos": df.sort_values(["iso3", "anio"]).round(3).to_dict("records"),
+            "promedio_por_pais": df.groupby("pais").valor.mean().round(3).sort_values(ascending=False).to_dict(),
+            "fuente": url}
+
+
+@mcp.resource("bcrp://serie/{codigo}")
+def ficha(codigo: str) -> dict:
+    """Ficha de una serie del BCRP: nombre, categoría, frecuencia, desde cuándo hay datos y última actualización."""
+    return _ficha(codigo)
+
+
+@mcp.prompt
+def informe(tema: str) -> str:
+    """Informe breve con cifras oficiales del BCRP, cada una con su serie y periodo."""
+    return (f"Escribe un informe de 5 viñetas sobre «{tema}» en el Perú con datos del BCRP. Busca las series con "
+            "buscar_series, usa resumen para variaciones y extremos y serie para los datos; no calcules a mano. "
+            "En cada viñeta cita el código de la serie y el periodo, y al final lista las URL de las fuentes.")
 
 
 if __name__ == "__main__":
