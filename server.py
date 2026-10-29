@@ -29,6 +29,9 @@ mcp = FastMCP("bcrp", instructions=(
     "cita siempre el código de la serie y el periodo."))
 
 
+PALABRAS_VACIAS = {"de", "del", "la", "las", "el", "los", "en", "y", "a", "al", "por", "para", "con", "un", "una"}
+
+
 def _sin_tildes(s):
     return unicodedata.normalize("NFD", str(s).lower()).encode("ascii", "ignore").decode()
 
@@ -60,7 +63,8 @@ def _ficha(codigo):
 
 @mcp.tool(annotations=SOLO_LECTURA)
 def buscar_series(texto: str, frecuencia: str | None = None, limite: int = 10) -> list[dict]:
-    """Busca series del BCRP por palabras: todas deben aparecer en la categoría, el grupo o el nombre.
+    """Busca series del BCRP por palabras en la categoría, el grupo o el nombre. Primero devuelve las que tienen
+    todas las palabras; si no hay, las que tienen más. Ignora palabras como "de", "la" o "en".
 
     Ejemplos: "ipc 12 meses", "tipo de cambio interbancario venta", "reservas internacionales netas",
     "tasa de referencia", "cobre precio". frecuencia: "Diaria", "Mensual", "Trimestral" o "Anual".
@@ -68,13 +72,14 @@ def buscar_series(texto: str, frecuencia: str | None = None, limite: int = 10) -
     prueben con menos palabras.
     """
     df = catalogo()
-    m = pd.Series(True, index=df.index)
-    for palabra in _sin_tildes(texto).split():
-        m &= df.texto.str.contains(re.escape(palabra))
     if frecuencia:
-        m &= df.frecuencia.str.lower() == frecuencia.lower()
+        df = df[df.frecuencia.str.lower() == frecuencia.lower()]
+    palabras = [p for p in _sin_tildes(texto).split() if p not in PALABRAS_VACIAS] or _sin_tildes(texto).split()
+    coinciden = sum(df.texto.str.contains(re.escape(p)).astype(int) for p in palabras)
+    # si ninguna serie tiene todas las palabras, las que tengan más (al menos la mitad)
+    minimo = max(coinciden.max(), (len(palabras) + 1) // 2) if len(df) else 1
+    sel = df[coinciden >= max(minimo, 1)]
     # primero las series vigentes y, entre ellas, las de nombre más corto (las más generales)
-    sel = df[m]
     orden = sel.assign(vieja=sel.actualizada < "2025", largo=(sel.grupo + sel.nombre).str.len())
     return [_ficha(c) for c in orden.sort_values(["vieja", "largo"]).head(limite).codigo]
 

@@ -1,0 +1,4 @@
+id,pregunta,verdad,tolerancia,serie,periodo
+bm_pbi_chile24,"Según el Banco Mundial, ¿cuánto creció el PBI real de Chile en 2024, en %?",2.8051,0.05,NY.GDP.MKTP.KD.ZG,2024
+bm_inflacion_col24,"Según el Banco Mundial, ¿cuál fue la inflación anual (precios al consumidor) de Colombia en 2024, en %?",6.6091,0.05,FP.CPI.TOTL.ZG,2024
+bm_desempleo_mex24,"Según el Banco Mundial (estimación modelada de la OIT), ¿cuál fue la tasa de desempleo de México en 2024, en % de la fuerza laboral?",2.678,0.05,SL.UEM.TOTL.ZS,2024

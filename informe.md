@@ -53,6 +53,36 @@ y deuda pública. Devuelve los valores por país y año, el promedio de cada pa�
 2022 y 2024 el PBI del Perú creció en promedio 2.0 % al año, por debajo de Brasil (3.2 %) y Colombia (3.2 %) y por
 encima de Chile (1.8 %).
 
+## Extras: robustez, herramienta propia y buscador
+
+**¿El 10 de 10 fue suerte?** Repetí la corrida base dos veces más (`resultados_rep2.csv`, `resultados_rep3.csv`). Las
+tres dan lo mismo: el MCP acierta **30 de 30** y la memoria dice «no sé» 30 veces. El tiempo también es estable:
+13.6, 13.7 y 13.7 s por pregunta con el MCP.
+
+| Corrida | MCP acierta | Memoria no sabe | Segundos MCP |
+|---|---|---|---|
+| 1 (`resultados.csv`) | 10 / 10 | 10 / 10 | 13.6 |
+| 2 (`resultados_rep2.csv`) | 10 / 10 | 10 / 10 | 13.7 |
+| 3 (`resultados_rep3.csv`) | 10 / 10 | 10 / 10 | 13.7 |
+
+**¿Claude usa `comparar_paises`?** Agregué tres preguntas del Banco Mundial en un archivo aparte,
+`preguntas_extra.csv`, para no cambiar las 10 de la rúbrica. Su `verdad` la saqué directo de la API del Banco Mundial.
+Con `uv run evaluar.py --preguntas preguntas_extra.csv --modos memoria web mcp --salida resultados_extra.csv`:
+
+| Pregunta (2024) | Verdad | Memoria | Web | MCP |
+|---|---|---|---|---|
+| Crecimiento del PBI de Chile (%) | 2.805 | no sabe | 2.80 | 2.805 |
+| Inflación de Colombia (%) | 6.609 | no sabe | 6.61 | 6.609 |
+| Desempleo de México, OIT (%) | 2.678 | no sabe | no sabe | 2.678 |
+
+El MCP acierta 3 de 3 y cita el código del indicador; la búsqueda web no encontró el desempleo de México. Con el MCP
+tarda más (29 s) porque la API del Banco Mundial es lenta, pero sigue siendo más rápido que la web (34 s).
+
+**Buscador más flexible.** `buscar_series` pedía que aparecieran todas las palabras, así que «precio del oro» o
+«ipc lima metropolitana variación 12 meses» no encontraban nada: el catálogo no dice «del» ni «variación», sino «var%».
+Ahora ignora palabras vacías como «de» o «la» y, si ninguna serie tiene todas las palabras, devuelve las que tienen más.
+Las dos búsquedas encuentran ahora sus series y las 8 pruebas siguen pasando.
+
 ## Conclusión
 
 Un MCP no hace que el modelo sepa más: hace que cada cifra salga de una llamada que se puede repetir y verificar. Con

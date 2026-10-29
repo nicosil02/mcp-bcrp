@@ -3,7 +3,7 @@
 Sesión 04 · Data Science con Python · Nicolás Silva Andújar (@nicosil02)
 
 **Resultado:** con este servidor MCP, Claude Haiku acierta **10 de 10** cifras oficiales del BCRP; sin herramientas no
-sabe ninguna y con búsqueda web acierta 9. Análisis completo en [`informe.md`](informe.md).
+sabe ninguna y con búsqueda web acierta 9. Repetido tres veces: 30 de 30. Análisis completo en [`informe.md`](informe.md).
 
 ![Resultados por modo](grafico.png)
 
@@ -12,7 +12,8 @@ sabe ninguna y con búsqueda web acierta 9. Análisis completo en [`informe.md`]
 | `server.py` | El servidor: `buscar_series`, `serie`, `resumen`, `comparar_paises` (Banco Mundial), el recurso `bcrp://serie/{codigo}` y el prompt `informe` |
 | `.mcp.json` | Conecta `bcrp` y `fetch` a Claude Code |
 | `preguntas.csv` | Las 10 preguntas; `oro_set26` y `desempleo_set26` son mías |
-| `resultados*.csv` | Lo que dio `evaluar.py` en cada modo |
+| `preguntas_extra.csv` | 3 preguntas del Banco Mundial para medir `comparar_paises` |
+| `resultados*.csv` | Lo que dio `evaluar.py` en cada modo, las repeticiones y las preguntas extra |
 | `informe.md`, `grafico.png`, `grafico.py` | El análisis y la figura |
 
 ---
